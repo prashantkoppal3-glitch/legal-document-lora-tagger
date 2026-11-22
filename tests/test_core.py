@@ -223,7 +223,6 @@ def test_milestone_5():
 
 
 # --- Milestone 6: Evaluate tagging accuracy and model efficiency
-@pytest.mark.skip(reason="remove this line when you start milestone 6")
 def test_milestone_6():
     """Verify evaluation metrics: accuracy, precision, recall, F1, and latency benchmarking."""
     model, tokenizer, _ = extend_tokenizer_and_model(is_small=True)

@@ -763,5 +763,127 @@ def milestone_5(clauses: Optional[List[str]] = None) -> Dict[str, Any]:
 
 
 # --- Milestone 6: Evaluate tagging accuracy and model efficiency
-def milestone_6():
-    raise NotImplementedError("TODO(milestone 6)")
+def evaluate_tagging_accuracy(
+    model: nn.Module,
+    tokenizer: GPT2Tokenizer,
+    test_data: List[Dict[str, str]],
+    tags: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Compute precision, recall, F1, and accuracy for legal clause classification."""
+    tags_list = tags or LEGAL_TAGS
+    y_true: List[str] = []
+    y_pred: List[str] = []
+
+    for item in test_data:
+        pred = predict_clause_tag(model, tokenizer, item["clause"], candidate_tags=tags_list)
+        y_true.append(item["tag"])
+        y_pred.append(pred["predicted_tag"])
+
+    # Calculate metrics
+    correct = sum(1 for t, p in zip(y_true, y_pred) if t == p)
+    total = len(y_true)
+    accuracy = correct / total if total > 0 else 0.0
+
+    per_class_metrics: Dict[str, Dict[str, float]] = {}
+    f1_scores: List[float] = []
+
+    for t in tags_list:
+        tp = sum(1 for yt, yp in zip(y_true, y_pred) if yt == t and yp == t)
+        fp = sum(1 for yt, yp in zip(y_true, y_pred) if yt != t and yp == t)
+        fn = sum(1 for yt, yp in zip(y_true, y_pred) if yt == t and yp != t)
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+
+        per_class_metrics[t] = {
+            "name": TAG_NAMES.get(t, t),
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "f1": round(f1, 4),
+            "support": sum(1 for yt in y_true if yt == t),
+        }
+        f1_scores.append(f1)
+
+    macro_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0.0
+
+    return {
+        "accuracy": round(accuracy, 4),
+        "macro_f1": round(macro_f1, 4),
+        "total_test_samples": total,
+        "correct_predictions": correct,
+        "per_class": per_class_metrics,
+    }
+
+
+def evaluate_model_efficiency(
+    model: nn.Module,
+    tokenizer: GPT2Tokenizer,
+    sample_clauses: List[str],
+    rank: int = 4,
+    device: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Evaluate inference latency, parameter reduction, and memory efficiency."""
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    model = model.to(device)
+    model.eval()
+
+    # Latency benchmarking
+    latencies: List[float] = []
+    # Warmup
+    if sample_clauses:
+        predict_clause_tag(model, tokenizer, sample_clauses[0], device=device)
+
+    for c in sample_clauses:
+        t0 = time.perf_counter()
+        predict_clause_tag(model, tokenizer, c, device=device)
+        t1 = time.perf_counter()
+        latencies.append((t1 - t0) * 1000.0)  # ms
+
+    avg_latency_ms = sum(latencies) / len(latencies) if latencies else 0.0
+    throughput = (1000.0 / avg_latency_ms) if avg_latency_ms > 0 else 0.0
+
+    # Parameter footprint
+    total_params = sum(p.numel() for p in model.parameters())
+    # Estimate LoRA parameter footprint for comparison
+    # In GPT-2 attention, c_attn has (in=768, out=2304) and c_proj has (in=768, out=768)
+    lora_params_per_layer = (768 * rank + rank * 2304) + (768 * rank + rank * 768)
+    lora_12_layers = lora_params_per_layer * 12
+    lora_pct = (lora_12_layers / 124_000_000) * 100.0
+
+    return {
+        "avg_latency_ms": round(avg_latency_ms, 2),
+        "throughput_clauses_per_sec": round(throughput, 2),
+        "total_parameters": total_params,
+        "lora_rank": rank,
+        "estimated_lora_trainable_pct": round(lora_pct, 4),
+        "device": str(device),
+    }
+
+
+def milestone_6() -> Dict[str, Any]:
+    """Milestone 6: Evaluate tagging accuracy and model efficiency."""
+    dataset = prepare_clause_dataset()
+    model, tokenizer, _ = extend_tokenizer_and_model(is_small=True)
+    inject_lora(model, rank=4, alpha=16.0)
+    mark_only_lora_as_trainable(model)
+
+    # Train model
+    finetune_lora(model, tokenizer, dataset["train"], epochs=2, lr=2e-3)
+
+    # Merge for inference and evaluation
+    merged_model = merge_lora_weights(model)
+
+    # Evaluate accuracy
+    accuracy_metrics = evaluate_tagging_accuracy(merged_model, tokenizer, dataset["test"])
+
+    # Evaluate efficiency
+    eval_clauses = [item["clause"] for item in dataset["test"]]
+    efficiency_metrics = evaluate_model_efficiency(merged_model, tokenizer, eval_clauses, rank=4)
+
+    return {
+        "accuracy_metrics": accuracy_metrics,
+        "efficiency_metrics": efficiency_metrics,
+    }

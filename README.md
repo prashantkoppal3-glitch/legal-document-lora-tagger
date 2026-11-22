@@ -24,7 +24,7 @@ Tick these off as you go, and commit after each one.
       Hint: Combine the LoRA adapter technique from 'Build LoRA from Scratch' with the fine-tuning process from 'Fine-Tune GPT-2 to Tag Legal Contract Clauses'.
 - [x] **5. Merge LoRA adapter and perform inference on new clauses**  
       Hint: Utilize the LoRA adapter merging and inference techniques from 'Build LoRA from Scratch' and 'Fine-Tune GPT-2 to Tag Legal Contract Clauses'.
-- [ ] **6. Evaluate tagging accuracy and model efficiency**  
+- [x] **6. Evaluate tagging accuracy and model efficiency**  
       Hint: Evaluate the model's performance using metrics similar to those discussed in 'Fine-Tune GPT-2 to Tag Legal Contract Clauses'.
 
 ## Run it
