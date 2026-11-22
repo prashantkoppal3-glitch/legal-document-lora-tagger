@@ -501,9 +501,148 @@ def milestone_3(
 
 
 # --- Milestone 4: Fine-tune GPT-2 with LoRA on the clause dataset
-def milestone_4():
-    raise NotImplementedError("TODO(milestone 4)")
+def tokenize_clause_data(
+    data: List[Dict[str, str]],
+    tokenizer: GPT2Tokenizer,
+    max_length: int = 128,
+) -> Dict[str, torch.Tensor]:
+    """Tokenize clauses and tags for causal language modeling."""
+    prompts = [item.get("prompt") or format_clause_prompt(item["clause"], item["tag"]) for item in data]
+    # Append EOS token to delimit sequence completion
+    full_texts = [p + tokenizer.eos_token for p in prompts]
 
+    encodings = tokenizer(
+        full_texts,
+        truncation=True,
+        max_length=max_length,
+        padding="max_length",
+        return_tensors="pt",
+    )
+
+    labels = encodings["input_ids"].clone()
+    # Mask padding tokens in the loss computation
+    labels[labels == tokenizer.pad_token_id] = -100
+
+    return {
+        "input_ids": encodings["input_ids"],
+        "attention_mask": encodings["attention_mask"],
+        "labels": labels,
+    }
+
+
+def finetune_lora(
+    model: nn.Module,
+    tokenizer: GPT2Tokenizer,
+    train_data: List[Dict[str, str]],
+    epochs: int = 3,
+    batch_size: int = 4,
+    lr: float = 1e-3,
+    device: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Fine-tune LoRA parameters on the legal clause dataset using PyTorch.
+
+    Args:
+        model: GPT-2 model with injected LoRA adapters.
+        tokenizer: Extended GPT-2 tokenizer.
+        train_data: List of clause-tag dictionaries.
+        epochs: Number of training epochs.
+        batch_size: Mini-batch size.
+        lr: Learning rate for AdamW optimizer.
+        device: Device to train on ('cuda' or 'cpu').
+
+    Returns:
+        Dictionary with training loss history, final loss, and training duration.
+    """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    model = model.to(device)
+    model.train()
+
+    # Ensure only LoRA parameters receive gradient updates
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    if not trainable_params:
+        raise ValueError("No trainable parameters found in model. Call mark_only_lora_as_trainable first.")
+
+    optimizer = torch.optim.AdamW(trainable_params, lr=lr, weight_decay=0.01)
+
+    tokenized = tokenize_clause_data(train_data, tokenizer)
+    input_ids = tokenized["input_ids"]
+    attention_mask = tokenized["attention_mask"]
+    labels = tokenized["labels"]
+
+    n_samples = input_ids.shape[0]
+    loss_history: List[float] = []
+    start_time = time.time()
+
+    for epoch in range(epochs):
+        # Shuffle indices each epoch
+        perm = torch.randperm(n_samples)
+        epoch_losses: List[float] = []
+
+        for i in range(0, n_samples, batch_size):
+            batch_idx = perm[i : i + batch_size]
+            b_input_ids = input_ids[batch_idx].to(device)
+            b_attention_mask = attention_mask[batch_idx].to(device)
+            b_labels = labels[batch_idx].to(device)
+
+            optimizer.zero_grad()
+            outputs = model(
+                input_ids=b_input_ids,
+                attention_mask=b_attention_mask,
+                labels=b_labels,
+            )
+            loss = outputs.loss
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
+            optimizer.step()
+
+            epoch_losses.append(loss.item())
+
+        avg_epoch_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0.0
+        loss_history.append(avg_epoch_loss)
+
+    train_duration = time.time() - start_time
+    model.eval()
+
+    return {
+        "model": model,
+        "epochs": epochs,
+        "loss_history": loss_history,
+        "initial_loss": loss_history[0] if loss_history else None,
+        "final_loss": loss_history[-1] if loss_history else None,
+        "duration_seconds": round(train_duration, 3),
+    }
+
+
+def milestone_4(
+    epochs: int = 3,
+    batch_size: int = 4,
+    lr: float = 1e-3,
+) -> Dict[str, Any]:
+    """Milestone 4: Fine-tune GPT-2 with LoRA on the clause dataset."""
+    dataset = prepare_clause_dataset()
+    model, tokenizer, _ = extend_tokenizer_and_model(is_small=True)
+    inject_lora(model, rank=4, alpha=16.0)
+    mark_only_lora_as_trainable(model)
+
+    train_results = finetune_lora(
+        model=model,
+        tokenizer=tokenizer,
+        train_data=dataset["train"],
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+    )
+
+    return {
+        "train_results": train_results,
+        "tokenizer": tokenizer,
+        "model": train_results["model"],
+    }
+
+
+# --- Milestone 5: Merge LoRA adapter and perform inference on new clauses
 def milestone_5():
     raise NotImplementedError("TODO(milestone 5)")
 

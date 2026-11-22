@@ -20,7 +20,7 @@ Tick these off as you go, and commit after each one.
       Hint: Apply the special token extension method from 'Fine-Tune GPT-2 to Tag Legal Contract Clauses' to your tokenizer and model.
 - [x] **3. Implement LoRA adapter and inject into GPT-2**  
       Hint: Implement and inject the LoRA adapter into GPT-2's attention layers, as shown in 'Build LoRA from Scratch'.
-- [ ] **4. Fine-tune GPT-2 with LoRA on the clause dataset**  
+- [x] **4. Fine-tune GPT-2 with LoRA on the clause dataset**  
       Hint: Combine the LoRA adapter technique from 'Build LoRA from Scratch' with the fine-tuning process from 'Fine-Tune GPT-2 to Tag Legal Contract Clauses'.
 - [ ] **5. Merge LoRA adapter and perform inference on new clauses**  
       Hint: Utilize the LoRA adapter merging and inference techniques from 'Build LoRA from Scratch' and 'Fine-Tune GPT-2 to Tag Legal Contract Clauses'.
