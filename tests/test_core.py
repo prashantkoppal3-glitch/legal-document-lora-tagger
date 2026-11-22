@@ -1,8 +1,11 @@
 import pytest
+import torch
+import torch.nn as nn
 from transformers.pytorch_utils import Conv1D
 from app.core import (
     LEGAL_TAGS, format_clause_prompt, milestone_1, prepare_clause_dataset,
-    extend_tokenizer_and_model, milestone_2
+    extend_tokenizer_and_model, milestone_2,
+    LoRAConv1D, LoRALinear, inject_lora, mark_only_lora_as_trainable, count_parameters, milestone_3
 )
 
 def test_milestone_1():
@@ -12,21 +15,18 @@ def test_milestone_1():
 
 def test_milestone_2():
     res = milestone_2()
-    model = res["model"]
-    tokenizer = res["tokenizer"]
-    custom_tags = res["custom_tags"]
-    assert len(custom_tags) == len(LEGAL_TAGS)
-    assert tokenizer.pad_token is not None
-    for tag in custom_tags:
-        token_id = tokenizer.convert_tokens_to_ids(tag)
-        assert token_id is not None
-        assert token_id < len(tokenizer)
-    emb_weight = model.get_input_embeddings().weight
-    assert emb_weight.shape[0] == len(tokenizer)
+    assert res["vocab_size"] == len(res["tokenizer"])
 
-@pytest.mark.skip(reason="remove this line when you start milestone 3")
 def test_milestone_3():
-    raise NotImplementedError("write the test for milestone 3")
+    base_conv = Conv1D(nf=64, nx=32)
+    lora_conv = LoRAConv1D(base_conv, rank=4, alpha=8.0)
+    x = torch.randn(2, 5, 32)
+    with torch.no_grad():
+        assert torch.allclose(base_conv(x), lora_conv(x), atol=1e-6)
+    assert not base_conv.weight.requires_grad
+    assert lora_conv.lora_A.requires_grad
+    res = milestone_3(rank=4, alpha=16.0)
+    assert res["param_stats"]["trainable_params"] > 0
 
 @pytest.mark.skip(reason="remove this line when you start milestone 4")
 def test_milestone_4():

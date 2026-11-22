@@ -337,9 +337,170 @@ def milestone_2() -> Dict[str, Any]:
 
 
 # --- Milestone 3: Implement LoRA adapter and inject into GPT-2
-def milestone_3():
-    raise NotImplementedError("TODO(milestone 3)")
+class LoRAConv1D(nn.Module):
+    """LoRA wrapper for GPT-2 Conv1D projection layers built from scratch.
 
+    GPT-2 attention projections (c_attn, c_proj) store weights with shape
+    (in_features, out_features). LoRA introduces low-rank matrices:
+        A: (in_features, rank)
+        B: (rank, out_features)
+    such that delta_W = (A @ B) * (alpha / rank).
+    """
+
+    def __init__(self, base_layer: Conv1D, rank: int = 4, alpha: float = 16.0):
+        super().__init__()
+        self.base_layer = base_layer
+        self.rank = rank
+        self.alpha = alpha
+        self.scaling = alpha / rank if rank > 0 else 1.0
+
+        # Freeze the pre-trained base layer parameters
+        for param in self.base_layer.parameters():
+            param.requires_grad = False
+
+        in_features = base_layer.weight.shape[0]
+        out_features = base_layer.weight.shape[1]
+        self.in_features = in_features
+        self.out_features = out_features
+
+        if rank > 0:
+            # Low-rank decomposition matrices
+            self.lora_A = nn.Parameter(torch.empty(in_features, rank))
+            self.lora_B = nn.Parameter(torch.zeros(rank, out_features))
+
+            # Initialize A with Kaiming uniform and B with zeros so delta_W starts at 0
+            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            nn.init.zeros_(self.lora_B)
+        else:
+            self.register_parameter("lora_A", None)
+            self.register_parameter("lora_B", None)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Base Conv1D output
+        base_out = self.base_layer(x)
+
+        if self.rank > 0 and self.lora_A is not None and self.lora_B is not None:
+            # Low-rank adapted output: (x @ A) @ B * scaling
+            lora_out = (x @ self.lora_A) @ self.lora_B * self.scaling
+            return base_out + lora_out
+
+        return base_out
+
+    def merge_weights(self) -> Conv1D:
+        """Merge low-rank weights directly into base Conv1D weights and return unwrapped layer."""
+        if self.rank > 0 and self.lora_A is not None and self.lora_B is not None:
+            delta_w = (self.lora_A @ self.lora_B) * self.scaling
+            self.base_layer.weight.data += delta_w
+        return self.base_layer
+
+
+class LoRALinear(nn.Module):
+    """LoRA wrapper for standard nn.Linear layers built from scratch.
+
+    Linear stores weights with shape (out_features, in_features).
+    """
+
+    def __init__(self, base_layer: nn.Linear, rank: int = 4, alpha: float = 16.0):
+        super().__init__()
+        self.base_layer = base_layer
+        self.rank = rank
+        self.alpha = alpha
+        self.scaling = alpha / rank if rank > 0 else 1.0
+
+        for param in self.base_layer.parameters():
+            param.requires_grad = False
+
+        in_features = base_layer.in_features
+        out_features = base_layer.out_features
+        self.in_features = in_features
+        self.out_features = out_features
+
+        if rank > 0:
+            self.lora_A = nn.Parameter(torch.empty(rank, in_features))
+            self.lora_B = nn.Parameter(torch.zeros(out_features, rank))
+            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            nn.init.zeros_(self.lora_B)
+        else:
+            self.register_parameter("lora_A", None)
+            self.register_parameter("lora_B", None)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        base_out = self.base_layer(x)
+        if self.rank > 0 and self.lora_A is not None and self.lora_B is not None:
+            lora_out = (x @ self.lora_A.t()) @ self.lora_B.t() * self.scaling
+            return base_out + lora_out
+        return base_out
+
+    def merge_weights(self) -> nn.Linear:
+        if self.rank > 0 and self.lora_A is not None and self.lora_B is not None:
+            delta_w = (self.lora_B @ self.lora_A) * self.scaling
+            self.base_layer.weight.data += delta_w
+        return self.base_layer
+
+
+def inject_lora(
+    model: nn.Module,
+    rank: int = 4,
+    alpha: float = 16.0,
+    target_modules: Tuple[str, ...] = ("c_attn", "c_proj"),
+) -> nn.Module:
+    """Recursively inject custom LoRA adapters into GPT-2 attention layers."""
+    for name, child in list(model.named_children()):
+        if isinstance(child, Conv1D) and any(tgt in name for tgt in target_modules):
+            setattr(model, name, LoRAConv1D(child, rank=rank, alpha=alpha))
+        elif isinstance(child, nn.Linear) and any(tgt in name for tgt in target_modules):
+            setattr(model, name, LoRALinear(child, rank=rank, alpha=alpha))
+        else:
+            inject_lora(child, rank=rank, alpha=alpha, target_modules=target_modules)
+    return model
+
+
+def mark_only_lora_as_trainable(model: nn.Module) -> None:
+    """Freeze all base parameters, leaving only LoRA parameters trainable."""
+    for name, param in model.named_parameters():
+        if "lora_" in name:
+            param.requires_grad = True
+        else:
+            param.requires_grad = False
+
+
+def count_parameters(model: nn.Module) -> Dict[str, Any]:
+    """Calculate parameter counts and compression statistics."""
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    frozen_params = total_params - trainable_params
+    trainable_pct = (trainable_params / total_params * 100.0) if total_params > 0 else 0.0
+
+    return {
+        "total_params": total_params,
+        "trainable_params": trainable_params,
+        "frozen_params": frozen_params,
+        "trainable_pct": round(trainable_pct, 4),
+    }
+
+
+def milestone_3(
+    model: Optional[nn.Module] = None,
+    rank: int = 4,
+    alpha: float = 16.0,
+) -> Dict[str, Any]:
+    """Milestone 3: Implement LoRA adapter and inject into GPT-2."""
+    if model is None:
+        model, _, _ = extend_tokenizer_and_model(is_small=True)
+
+    inject_lora(model, rank=rank, alpha=alpha)
+    mark_only_lora_as_trainable(model)
+    param_stats = count_parameters(model)
+
+    return {
+        "model": model,
+        "rank": rank,
+        "alpha": alpha,
+        "param_stats": param_stats,
+    }
+
+
+# --- Milestone 4: Fine-tune GPT-2 with LoRA on the clause dataset
 def milestone_4():
     raise NotImplementedError("TODO(milestone 4)")
 
