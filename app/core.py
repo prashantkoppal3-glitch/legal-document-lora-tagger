@@ -276,15 +276,15 @@ def extend_tokenizer_and_model(
     """
     tags_to_add = custom_tags or list(LEGAL_TAGS)
 
-    # Load tokenizer from local cache or default
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    os.environ["TRANSFORMERS_OFFLINE"] = "1"
-
-    try:
-        tokenizer = GPT2Tokenizer.from_pretrained("gpt2", local_files_only=local_files_only)
-    except Exception:
-        # Fallback if local_files_only needs False or offline loading
-        tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    # Prefer bundled app/tokenizer if available; otherwise load from local cache or Hub
+    bundled_tok_dir = os.path.join(os.path.dirname(__file__), "tokenizer")
+    if os.path.exists(os.path.join(bundled_tok_dir, "vocab.json")):
+        tokenizer = GPT2Tokenizer.from_pretrained(bundled_tok_dir)
+    else:
+        try:
+            tokenizer = GPT2Tokenizer.from_pretrained("gpt2", local_files_only=True)
+        except Exception:
+            tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
     # Set padding token to EOS token if not defined
     if tokenizer.pad_token is None:
