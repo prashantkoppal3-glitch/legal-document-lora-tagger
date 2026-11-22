@@ -1,41 +1,38 @@
-"""Your tests. Each milestone in README.md gets one here: write the test first, then make it pass.
-
-They start skipped. Remove the `skip` line as you work on each milestone.
-"""
 import pytest
+from app.core import LEGAL_TAGS, format_clause_prompt, milestone_1, prepare_clause_dataset
 
-# Milestone 1: Prepare a dataset of legal clauses for tagging
-@pytest.mark.skip(reason="remove this line when you start milestone 1")
 def test_milestone_1():
-    raise NotImplementedError("write the test for milestone 1")
+    res = milestone_1()
+    assert "train" in res and "test" in res
+    assert res["total_samples"] >= 30
+    assert res["train_samples"] > 0
+    assert res["test_samples"] > 0
+    for tag in LEGAL_TAGS:
+        assert tag in res["tags"]
+        assert res["tag_counts"][tag] > 0
+    for item in res["train"] + res["test"]:
+        assert "clause" in item and len(item["clause"]) > 10
+        assert "tag" in item and item["tag"] in LEGAL_TAGS
+        assert "prompt" in item
+    assert format_clause_prompt("Sample.", "<TERMINATION>") == "Clause: Sample.\nTag: <TERMINATION>"
+    assert format_clause_prompt("Sample.") == "Clause: Sample.\nTag:"
 
-
-# Milestone 2: Extend GPT-2 tokenizer and model for custom tags
 @pytest.mark.skip(reason="remove this line when you start milestone 2")
 def test_milestone_2():
     raise NotImplementedError("write the test for milestone 2")
 
-
-# Milestone 3: Implement LoRA adapter and inject into GPT-2
 @pytest.mark.skip(reason="remove this line when you start milestone 3")
 def test_milestone_3():
     raise NotImplementedError("write the test for milestone 3")
 
-
-# Milestone 4: Fine-tune GPT-2 with LoRA on the clause dataset
 @pytest.mark.skip(reason="remove this line when you start milestone 4")
 def test_milestone_4():
     raise NotImplementedError("write the test for milestone 4")
 
-
-# Milestone 5: Merge LoRA adapter and perform inference on new clauses
 @pytest.mark.skip(reason="remove this line when you start milestone 5")
 def test_milestone_5():
     raise NotImplementedError("write the test for milestone 5")
 
-
-# Milestone 6: Evaluate tagging accuracy and model efficiency
 @pytest.mark.skip(reason="remove this line when you start milestone 6")
 def test_milestone_6():
     raise NotImplementedError("write the test for milestone 6")
-
