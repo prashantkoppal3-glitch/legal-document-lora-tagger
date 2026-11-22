@@ -643,8 +643,125 @@ def milestone_4(
 
 
 # --- Milestone 5: Merge LoRA adapter and perform inference on new clauses
-def milestone_5():
-    raise NotImplementedError("TODO(milestone 5)")
+def merge_lora_weights(model: nn.Module) -> nn.Module:
+    """Merge LoRA weights back into base weights and replace adapters with native layers."""
+    for name, child in list(model.named_children()):
+        if isinstance(child, (LoRAConv1D, LoRALinear)):
+            unwrapped = child.merge_weights()
+            setattr(model, name, unwrapped)
+        else:
+            merge_lora_weights(child)
+    return model
 
+
+def predict_clause_tag(
+    model: nn.Module,
+    tokenizer: GPT2Tokenizer,
+    clause_text: str,
+    candidate_tags: Optional[List[str]] = None,
+    device: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Classify a legal clause by predicting its custom tag.
+
+    Args:
+        model: Trained / merged GPT-2 model.
+        tokenizer: Extended GPT-2 tokenizer.
+        clause_text: Input legal clause string.
+        candidate_tags: List of valid tag tokens to choose from.
+        device: Device to run inference on.
+
+    Returns:
+        Dictionary with predicted tag, tag name, confidence score, and candidate probabilities.
+    """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    tags = candidate_tags or LEGAL_TAGS
+    model = model.to(device)
+    model.eval()
+
+    prompt = format_clause_prompt(clause_text)
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+        # Logits for the next token immediately following "Tag:"
+        next_token_logits = outputs.logits[0, -1, :]
+
+        # Look up token IDs for each candidate tag
+        tag_token_ids = {}
+        for t in tags:
+            tid = tokenizer.convert_tokens_to_ids(t)
+            tag_token_ids[t] = tid
+
+        tag_scores = {t: next_token_logits[tid].item() for t, tid in tag_token_ids.items()}
+        # Compute softmax over candidate tags
+        score_tensor = torch.tensor([tag_scores[t] for t in tags])
+        probs = torch.softmax(score_tensor, dim=0).tolist()
+        tag_probs = {t: round(p, 4) for t, p in zip(tags, probs)}
+
+        best_tag = max(tag_scores.items(), key=lambda kv: kv[1])[0]
+
+    return {
+        "clause": clause_text,
+        "predicted_tag": best_tag,
+        "tag_name": TAG_NAMES.get(best_tag, best_tag),
+        "confidence": tag_probs[best_tag],
+        "tag_probabilities": tag_probs,
+    }
+
+
+def tag_document(
+    model: nn.Module,
+    tokenizer: GPT2Tokenizer,
+    document_text: str,
+    candidate_tags: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Segment a multi-clause legal document and tag each individual clause."""
+    paragraphs = [p.strip() for p in document_text.split("\n\n") if p.strip()]
+    if not paragraphs:
+        paragraphs = [p.strip() for p in document_text.split("\n") if p.strip()]
+
+    tagged_clauses: List[Dict[str, Any]] = []
+    for idx, p in enumerate(paragraphs, start=1):
+        pred = predict_clause_tag(model, tokenizer, p, candidate_tags=candidate_tags)
+        pred["clause_index"] = idx
+        tagged_clauses.append(pred)
+
+    return tagged_clauses
+
+
+def milestone_5(clauses: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Milestone 5: Merge LoRA adapter and perform inference on new clauses."""
+    # Build and fine-tune model
+    m4_out = milestone_4(epochs=2)
+    model = m4_out["model"]
+    tokenizer = m4_out["tokenizer"]
+
+    # Verify adapter layer exists prior to merge
+    has_lora_before = any(isinstance(m, (LoRAConv1D, LoRALinear)) for m in model.modules())
+
+    # Merge weights into base model
+    merged_model = merge_lora_weights(model)
+    has_lora_after = any(isinstance(m, (LoRAConv1D, LoRALinear)) for m in merged_model.modules())
+
+    test_clauses = clauses or [
+        "In the event of contract cancellation, written notice must be received sixty days beforehand.",
+        "Both organizations shall protect all secret files and shall not reveal technical designs to competitors.",
+        "All claims shall be governed exclusively by the state courts of Washington.",
+    ]
+
+    predictions = [predict_clause_tag(merged_model, tokenizer, c) for c in test_clauses]
+
+    return {
+        "merged_model": merged_model,
+        "tokenizer": tokenizer,
+        "has_lora_before": has_lora_before,
+        "has_lora_after": has_lora_after,
+        "predictions": predictions,
+    }
+
+
+# --- Milestone 6: Evaluate tagging accuracy and model efficiency
 def milestone_6():
     raise NotImplementedError("TODO(milestone 6)")

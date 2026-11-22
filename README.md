@@ -22,7 +22,7 @@ Tick these off as you go, and commit after each one.
       Hint: Implement and inject the LoRA adapter into GPT-2's attention layers, as shown in 'Build LoRA from Scratch'.
 - [x] **4. Fine-tune GPT-2 with LoRA on the clause dataset**  
       Hint: Combine the LoRA adapter technique from 'Build LoRA from Scratch' with the fine-tuning process from 'Fine-Tune GPT-2 to Tag Legal Contract Clauses'.
-- [ ] **5. Merge LoRA adapter and perform inference on new clauses**  
+- [x] **5. Merge LoRA adapter and perform inference on new clauses**  
       Hint: Utilize the LoRA adapter merging and inference techniques from 'Build LoRA from Scratch' and 'Fine-Tune GPT-2 to Tag Legal Contract Clauses'.
 - [ ] **6. Evaluate tagging accuracy and model efficiency**  
       Hint: Evaluate the model's performance using metrics similar to those discussed in 'Fine-Tune GPT-2 to Tag Legal Contract Clauses'.
