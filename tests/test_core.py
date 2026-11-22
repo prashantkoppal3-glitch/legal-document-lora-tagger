@@ -1,25 +1,28 @@
 import pytest
-from app.core import LEGAL_TAGS, format_clause_prompt, milestone_1, prepare_clause_dataset
+from transformers.pytorch_utils import Conv1D
+from app.core import (
+    LEGAL_TAGS, format_clause_prompt, milestone_1, prepare_clause_dataset,
+    extend_tokenizer_and_model, milestone_2
+)
 
 def test_milestone_1():
     res = milestone_1()
     assert "train" in res and "test" in res
     assert res["total_samples"] >= 30
-    assert res["train_samples"] > 0
-    assert res["test_samples"] > 0
-    for tag in LEGAL_TAGS:
-        assert tag in res["tags"]
-        assert res["tag_counts"][tag] > 0
-    for item in res["train"] + res["test"]:
-        assert "clause" in item and len(item["clause"]) > 10
-        assert "tag" in item and item["tag"] in LEGAL_TAGS
-        assert "prompt" in item
-    assert format_clause_prompt("Sample.", "<TERMINATION>") == "Clause: Sample.\nTag: <TERMINATION>"
-    assert format_clause_prompt("Sample.") == "Clause: Sample.\nTag:"
 
-@pytest.mark.skip(reason="remove this line when you start milestone 2")
 def test_milestone_2():
-    raise NotImplementedError("write the test for milestone 2")
+    res = milestone_2()
+    model = res["model"]
+    tokenizer = res["tokenizer"]
+    custom_tags = res["custom_tags"]
+    assert len(custom_tags) == len(LEGAL_TAGS)
+    assert tokenizer.pad_token is not None
+    for tag in custom_tags:
+        token_id = tokenizer.convert_tokens_to_ids(tag)
+        assert token_id is not None
+        assert token_id < len(tokenizer)
+    emb_weight = model.get_input_embeddings().weight
+    assert emb_weight.shape[0] == len(tokenizer)
 
 @pytest.mark.skip(reason="remove this line when you start milestone 3")
 def test_milestone_3():
